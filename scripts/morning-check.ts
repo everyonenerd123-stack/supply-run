@@ -24,9 +24,14 @@ async function main() {
       order_qty: l.order_qty,
       cost: `$${l.line_cost_usd.toFixed(2)}`,
       supplier: l.usual_supplier,
+      market: l.market_price_usd === null ? '-' : `$${l.market_price_usd.toFixed(2)} vs our $${l.unit_cost_usd.toFixed(2)}`,
     })),
   )
-  for (const l of result.reorder) console.log(`  ${l.name}: ${l.reason}`)
+  for (const l of result.reorder) {
+    console.log(`  ${l.name}: ${l.reason}`)
+    console.log(`     market: ${l.market_note}${l.market_source_url ? ` <${l.market_source_url}>` : ''}`)
+  }
+  console.log(`Market prices from: ${result.market_source}`)
 
   console.log('\nLOW BUT OK TODAY:')
   for (const l of result.low_but_ok) console.log(`  ${l.name} (${l.days_of_cover} days): ${l.reason}`)

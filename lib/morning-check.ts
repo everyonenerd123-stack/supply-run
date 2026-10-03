@@ -5,11 +5,13 @@ import { randomUUID } from 'node:crypto'
 import {
   assistantText,
   createZooworkClient,
+  customToolUse,
   isRunFinished,
   runOutcome,
   toolCall,
 } from '@zoowork-ai/sdk'
-import { CHECK_INSTRUCTIONS } from './agent-config'
+import { CHECK_INSTRUCTIONS, SEARCH_TOOL } from './agent-config'
+import { MOCK_MARKET_PRICES, searchMarketPrices, type PriceQuery, type PriceSearchResult } from './tavily'
 import { inventory, sales } from './data'
 import { forecastItems, orderQuantity, round2, type ItemForecast } from './forecast'
 
@@ -25,6 +27,10 @@ export interface ReorderLine {
   est_lost_sales_usd: number
   usual_supplier: string
   reason: string
+  /** Market price check (Tavily). null when no clear comparable price was found. */
+  market_price_usd: number | null
+  market_source_url: string | null
+  market_note: string
 }
 
 export interface LowItem {
@@ -45,6 +51,8 @@ export interface MorningCheckResult {
   low_but_ok: LowItem[]
   /** Where our numbers overrode the agent's item list (agent mode only). */
   corrections: string[]
+  /** Where the market price search came from. */
+  market_source: 'tavily' | 'mock' | 'none'
   totals: {
     order_cost_usd: number
     est_lost_sales_avoided_usd: number
@@ -105,6 +113,8 @@ async function agentCheck(opts: MorningCheckOptions, started: number): Promise<M
     let reply = ''
     let cursor: string | undefined
     let outcome: string | undefined
+    const handledCalls = new Set<string>()
+    const searches: PriceSearchResult[] = []
 
     // The stream can close on idle before the run ends; reopen it from the last cursor.
     while (!outcome && !abort.signal.aborted) {
@@ -115,6 +125,30 @@ async function agentCheck(opts: MorningCheckOptions, started: number): Promise<M
         if (text) reply += text + '\n'
         const tool = toolCall(event)
         if (tool?.phase === 'start') opts.onProgress?.(`Agent is using tool: ${tool.toolName}`)
+
+        // The agent paused to ask us to run a custom tool: run it here and hand back the result.
+        const custom = customToolUse(event)
+        if (custom?.phase === 'requested' && !handledCalls.has(custom.callId)) {
+          handledCalls.add(custom.callId)
+          if (custom.name === SEARCH_TOOL) {
+            const queries = parseQueries(custom.input)
+            opts.onProgress?.(`Agent asked Tavily for prices: ${queries.map((q) => `"${q.query}"`).join(', ')}`)
+            const results = await searchMarketPrices(queries)
+            searches.push(...results)
+            await zc.resolveCustomToolCall(agentId, custom.callId, {
+              content: [{ type: 'json', value: { results } }],
+              resolvedBy: 'supply-run',
+            })
+            opts.onProgress?.(`Sent ${results.reduce((n, r) => n + r.results.length, 0)} search results back to the agent`)
+          } else {
+            await zc.resolveCustomToolCall(agentId, custom.callId, {
+              content: [{ type: 'text', text: `Unknown tool ${custom.name}` }],
+              isError: true,
+              resolvedBy: 'supply-run',
+            })
+          }
+        }
+
         if (isRunFinished(event)) {
           outcome = runOutcome(event) ?? 'unknown'
           break
@@ -134,10 +168,18 @@ async function agentCheck(opts: MorningCheckOptions, started: number): Promise<M
       summary: parsed.summary,
       reorder: parsed.reorder,
       lowButOk: parsed.low_but_ok,
+      searches,
     })
   } finally {
     clearTimeout(timer)
   }
+}
+
+function parseQueries(input: Record<string, unknown> | undefined): PriceQuery[] {
+  const items = Array.isArray(input?.items) ? input.items : []
+  return items.flatMap((i: any) =>
+    typeof i?.item_id === 'string' && typeof i?.query === 'string' ? [{ item_id: i.item_id, query: i.query.slice(0, 200) }] : [],
+  )
 }
 
 function buildMessage(): string {
@@ -177,7 +219,15 @@ function buildMessage(): string {
 
 interface AgentReply {
   summary: string
-  reorder: { id: string; forecast_24h?: number; order_qty?: number; reason?: string }[]
+  reorder: {
+    id: string
+    forecast_24h?: number
+    order_qty?: number
+    reason?: string
+    market_price_usd?: number | null
+    market_source_url?: string | null
+    market_note?: string
+  }[]
   low_but_ok: { id: string; reason?: string }[]
 }
 
@@ -220,7 +270,13 @@ function referenceCheck({ started, fallbackReason }: { started: number; fallback
     started,
     fallbackReason,
     summary: `${out.length} items will run out during today's service: ${out.map((f) => f.name.toLowerCase()).join(', ')}. ${low.length} more are low but will last the day.`,
-    reorder: out.map((f) => ({ id: f.id, reason: referenceReason(f) })),
+    reorder: out.map((f) => ({
+      id: f.id,
+      reason: referenceReason(f),
+      market_price_usd: MOCK_MARKET_PRICES[f.id]?.price ?? null,
+      market_source_url: MOCK_MARKET_PRICES[f.id]?.url ?? null,
+      market_note: MOCK_MARKET_PRICES[f.id]?.note,
+    })),
     lowButOk: low.map((f) => ({ id: f.id, reason: lowReason(f) })),
   })
 }
@@ -247,8 +303,21 @@ function buildResult(input: {
   summary: string
   reorder: AgentReply['reorder']
   lowButOk: AgentReply['low_but_ok']
+  searches?: PriceSearchResult[]
 }): MorningCheckResult {
   const forecasts = forecastItems()
+  // A market price is accepted only if its URL really came back from the search and the price
+  // is plausible (40%-250% of what we normally pay). Otherwise it is dropped, not guessed.
+  const seenUrls = new Set((input.searches ?? []).flatMap((s) => s.results.map((r) => r.url)))
+  const marketFor = (line: AgentReply['reorder'][number] | undefined, unitCost: number) => {
+    const price = line?.market_price_usd
+    const url = line?.market_source_url ?? null
+    const urlOk = input.source === 'mock' || (url !== null && seenUrls.has(url))
+    const priceOk = typeof price === 'number' && Number.isFinite(price) && price >= unitCost * 0.4 && price <= unitCost * 2.5
+    return priceOk && urlOk
+      ? { market_price_usd: round2(price), market_source_url: url, market_note: line?.market_note?.trim() || '' }
+      : { market_price_usd: null, market_source_url: null, market_note: 'No clear comparable price found online' }
+  }
   const items = new Map(inventory.items.map((i) => [i.id, i]))
   const agentReorder = new Map(input.reorder.map((r) => [r.id, r]))
   const agentLow = new Map(input.lowButOk.map((r) => [r.id, r]))
@@ -280,6 +349,7 @@ function buildResult(input: {
         est_lost_sales_usd: round2((f.forecast_24h - f.on_hand) * item.est_revenue_per_unit_usd),
         usual_supplier: item.usual_supplier,
         reason: agentReason || referenceReason(f),
+        ...marketFor(agentReorder.get(f.id), item.unit_cost_usd),
       }
     })
 
@@ -302,6 +372,14 @@ function buildResult(input: {
     reorder,
     low_but_ok,
     corrections: input.source === 'agent' ? corrections : [],
+    market_source:
+      input.source === 'mock'
+        ? 'mock'
+        : (input.searches ?? []).some((s) => s.source === 'tavily')
+          ? 'tavily'
+          : (input.searches ?? []).length
+            ? 'mock'
+            : 'none',
     totals: {
       order_cost_usd: round2(orderCost),
       est_lost_sales_avoided_usd: round2(reorder.reduce((sum, l) => sum + l.est_lost_sales_usd, 0)),
