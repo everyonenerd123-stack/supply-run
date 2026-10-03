@@ -12,12 +12,9 @@ export interface AgentOrderReport {
 
 // Written to the agent's sandbox and run with node. Kept plain CommonJS on purpose.
 const BROWSER_SCRIPT = String.raw`
-const fs = require('fs');
-let pw;
-try { pw = require('playwright-core'); }
-catch { pw = require(require('child_process').execSync('npm root -g').toString().trim() + '/playwright-core'); }
+const pw = require('playwright-core');
+const orders = require('/workspace/orders.json');
 (async () => {
-  const orders = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
   const browser = await pw.chromium.launch();
   for (const o of orders) {
     const page = await browser.newPage();
@@ -54,8 +51,9 @@ function buildMessage(baseUrl: string, groups: SupplierGroup[]): string {
     'Steps:',
     '1. Use the write tool to create /workspace/place_orders.js with exactly the script below.',
     '2. Use the write tool to create /workspace/orders.json with exactly the JSON below.',
-    '3. Run: node /workspace/place_orders.js /workspace/orders.json',
+    '3. Run: node /workspace/place_orders.js',
     '   It opens each supplier site in Chromium, fills in the order form, clicks "Place order" and prints one JSON line per supplier.',
+    '   If node cannot find playwright-core, run it again with NODE_PATH set to the global npm modules folder.',
     '4. If a supplier line has an error, fix the cause if you can and run it again for that supplier only. Do not invent codes.',
     'Reply with ONLY one ```json block: {"orders": [{"slug": "...", "code": "..."}]} using the codes printed by the script.',
     '',
