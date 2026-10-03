@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+/* Colours taken from the designs/ mockup */
+@theme {
+  --color-brand: #1f5eff;
+  --color-brand-dark: #1747c7;
+  --color-page: #f4f6fb;
+  --color-ink: #111827;
+  --color-muted: #6b7280;
+  --color-line: #e5e7eb;
+  --color-danger: #e5484d;
+  --color-danger-soft: #fdecec;
+  --color-ok: #16a34a;
+  --color-ok-soft: #e7f6ec;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-ink);
+}
