@@ -376,7 +376,7 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
                 <div className="font-semibold text-ok">Why order now</div>
                 <ul className="mt-1 space-y-0.5 text-ink">
                   <li>
-                    Protects about <b>{usd(result.totals.est_lost_sales_avoided_usd)}</b> of today’s sales that would be lost when these items run out.
+                    Protects about <b>{usd(result.totals.est_lost_sales_avoided_usd)}</b> of potential sales today that would be lost when these items run out.
                   </li>
                   <li>
                     Saves about <b>{usd(result.totals.rush_premium_avoided_usd)}</b> compared with an emergency delivery later, which suppliers charge ~
