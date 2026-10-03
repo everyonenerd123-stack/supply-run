@@ -30,7 +30,16 @@ export function placeSupplierOrder(supplier: Supplier, input: SupplierOrderInput
     throw new Error('Business name, account number and delivery date are required.')
   }
 
-  const code = createOrderCode(supplier, lines)
+  return confirmationFor(supplier, createOrderCode(supplier, lines), lines, input)
+}
+
+/** The confirmation details for an order code (the code itself is checked elsewhere). */
+export function confirmationFor(
+  supplier: Supplier,
+  code: string,
+  lines: OrderLines,
+  input: Omit<SupplierOrderInput, 'lines'>,
+): SupplierOrderConfirmation {
   const total = supplier.products.reduce((sum, p) => sum + (lines[p.id] ?? 0) * p.price_usd, 0)
   const query = new URLSearchParams({
     code,
