@@ -12,7 +12,7 @@ import {
 } from '@zoowork-ai/sdk'
 import { CHECK_INSTRUCTIONS, SEARCH_TOOL } from './agent-config'
 import { MOCK_MARKET_PRICES, searchMarketPrices, type PriceQuery, type PriceSearchResult } from './tavily'
-import { inventory, sales } from './data'
+import { inventory as baseInventory, sales, type Inventory } from './data'
 import { forecastItems, orderQuantity, round2, type ItemForecast } from './forecast'
 
 export interface ReorderLine {
@@ -59,6 +59,8 @@ export interface MorningCheckResult {
     rush_premium_avoided_usd: number
   }
   session_id?: string
+  /** Exactly what the agent replied, for the "show raw agent reply" button. */
+  raw_reply?: string
   duration_ms: number
 }
 
@@ -67,30 +69,43 @@ export interface MorningCheckOptions {
   timeoutMs?: number
   /** Progress messages for the terminal or UI ("agent is thinking", "tool: python", ...). */
   onProgress?: (message: string) => void
+  /** Stock counts edited on the dashboard (item id -> on hand). Missing ids keep the file value. */
+  onHandOverrides?: Record<string, number>
 }
 
 export function isMockMode(): boolean {
   return process.env.MOCK_MODE === '1' || process.env.MOCK_MODE === 'true'
 }
 
+export function applyOverrides(overrides: Record<string, number> = {}): Inventory {
+  return {
+    ...baseInventory,
+    items: baseInventory.items.map((item) => {
+      const v = overrides[item.id]
+      return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? { ...item, on_hand: v } : item
+    }),
+  }
+}
+
 export async function runMorningCheck(opts: MorningCheckOptions = {}): Promise<MorningCheckResult> {
   const started = Date.now()
+  const inv = applyOverrides(opts.onHandOverrides)
   if (opts.mock || isMockMode()) {
-    return referenceCheck({ started })
+    return referenceCheck({ started, inv })
   }
   try {
-    return await agentCheck(opts, started)
+    return await agentCheck(opts, started, inv)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     opts.onProgress?.(`Agent check failed, using mock result: ${message}`)
-    return referenceCheck({ started, fallbackReason: message })
+    return referenceCheck({ started, fallbackReason: message, inv })
   }
 }
 
 // ---------------------------------------------------------------------------
 // Live agent path
 
-async function agentCheck(opts: MorningCheckOptions, started: number): Promise<MorningCheckResult> {
+async function agentCheck(opts: MorningCheckOptions, started: number, inv: Inventory): Promise<MorningCheckResult> {
   const agentId = process.env.ZOOWORK_AGENT_ID
   if (!agentId) throw new Error('ZOOWORK_AGENT_ID is not set. Run `npm run setup-agent` first.')
 
@@ -103,7 +118,7 @@ async function agentCheck(opts: MorningCheckOptions, started: number): Promise<M
     const session = await zc.createSession(
       agentId,
       {
-        initial_events: [{ type: 'user.message', content: buildMessage() }],
+        initial_events: [{ type: 'user.message', content: buildMessage(inv) }],
         metadata: { app: 'supply-run', kind: 'morning-check' },
       },
       randomUUID(),
@@ -169,6 +184,8 @@ async function agentCheck(opts: MorningCheckOptions, started: number): Promise<M
       reorder: parsed.reorder,
       lowButOk: parsed.low_but_ok,
       searches,
+      inv,
+      rawReply: reply.trim(),
     })
   } finally {
     clearTimeout(timer)
@@ -182,8 +199,8 @@ function parseQueries(input: Record<string, unknown> | undefined): PriceQuery[] 
   )
 }
 
-function buildMessage(): string {
-  const forecastTable = forecastItems().map((f) => ({
+function buildMessage(inv: Inventory): string {
+  const forecastTable = forecastItems(inv).map((f) => ({
     id: f.id,
     name: f.name,
     unit: f.unit,
@@ -207,7 +224,7 @@ function buildMessage(): string {
     '',
     'inventory.json:',
     '```json',
-    JSON.stringify(inventory),
+    JSON.stringify(inv),
     '```',
     '',
     'sales.json:',
@@ -260,8 +277,8 @@ export function parseAgentReply(reply: string): AgentReply {
 // ---------------------------------------------------------------------------
 // Mock / reference path
 
-function referenceCheck({ started, fallbackReason }: { started: number; fallbackReason?: string }): MorningCheckResult {
-  const forecasts = forecastItems()
+function referenceCheck({ started, fallbackReason, inv }: { started: number; fallbackReason?: string; inv: Inventory }): MorningCheckResult {
+  const forecasts = forecastItems(inv)
   const out = forecasts.filter((f) => f.status === 'runs_out')
   const low = forecasts.filter((f) => f.status === 'low')
 
@@ -278,6 +295,7 @@ function referenceCheck({ started, fallbackReason }: { started: number; fallback
       market_note: MOCK_MARKET_PRICES[f.id]?.note,
     })),
     lowButOk: low.map((f) => ({ id: f.id, reason: lowReason(f) })),
+    inv,
   })
 }
 
@@ -304,8 +322,10 @@ function buildResult(input: {
   reorder: AgentReply['reorder']
   lowButOk: AgentReply['low_but_ok']
   searches?: PriceSearchResult[]
+  inv: Inventory
+  rawReply?: string
 }): MorningCheckResult {
-  const forecasts = forecastItems()
+  const forecasts = forecastItems(input.inv)
   // A market price is accepted only if its URL really came back from the search and the price
   // is plausible (40%-250% of what we normally pay). Otherwise it is dropped, not guessed.
   const seenUrls = new Set((input.searches ?? []).flatMap((s) => s.results.map((r) => r.url)))
@@ -318,7 +338,7 @@ function buildResult(input: {
       ? { market_price_usd: round2(price), market_source_url: url, market_note: line?.market_note?.trim() || '' }
       : { market_price_usd: null, market_source_url: null, market_note: 'No clear comparable price found online' }
   }
-  const items = new Map(inventory.items.map((i) => [i.id, i]))
+  const items = new Map(input.inv.items.map((i) => [i.id, i]))
   const agentReorder = new Map(input.reorder.map((r) => [r.id, r]))
   const agentLow = new Map(input.lowButOk.map((r) => [r.id, r]))
   const corrections: string[] = []
@@ -364,8 +384,8 @@ function buildResult(input: {
 
   const orderCost = reorder.reduce((sum, l) => sum + l.line_cost_usd, 0)
   return {
-    cafe: inventory.cafe,
-    as_of: inventory.as_of,
+    cafe: input.inv.cafe,
+    as_of: input.inv.as_of,
     source: input.source,
     fallback_reason: input.fallbackReason,
     summary: input.summary,
@@ -383,9 +403,10 @@ function buildResult(input: {
     totals: {
       order_cost_usd: round2(orderCost),
       est_lost_sales_avoided_usd: round2(reorder.reduce((sum, l) => sum + l.est_lost_sales_usd, 0)),
-      rush_premium_avoided_usd: round2((orderCost * inventory.rush_order_premium_pct) / 100),
+      rush_premium_avoided_usd: round2((orderCost * input.inv.rush_order_premium_pct) / 100),
     },
     session_id: input.sessionId,
+    raw_reply: input.rawReply,
     duration_ms: Date.now() - input.started,
   }
 }
