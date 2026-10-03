@@ -1,0 +1,24 @@
+{
+  "cafe": "Sunny Bistro",
+  "currency": "USD",
+  "as_of": "2026-10-03T07:00:00",
+  "rush_order_premium_pct": 30,
+  "note": "Morning stock count before opening. on_hand and par_level are in the item's unit. est_revenue_per_unit_usd is roughly how much menu revenue one unit of the item supports (used to estimate lost sales). rush_order_premium_pct is the extra cost of an emergency same-day order versus a planned one (used to estimate wasted spend).",
+  "items": [
+    { "id": "oat-milk", "name": "Oat milk", "category": "Dairy & alt milk", "unit": "carton (1 L)", "on_hand": 4, "par_level": 30, "unit_cost_usd": 3.20, "est_revenue_per_unit_usd": 22.00, "usual_supplier": "Valley Dairy Co." },
+    { "id": "whole-milk", "name": "Whole milk", "category": "Dairy & alt milk", "unit": "L", "on_hand": 34, "par_level": 60, "unit_cost_usd": 1.05, "est_revenue_per_unit_usd": 18.00, "usual_supplier": "Valley Dairy Co." },
+    { "id": "almond-milk", "name": "Almond milk", "category": "Dairy & alt milk", "unit": "carton (1 L)", "on_hand": 22, "par_level": 24, "unit_cost_usd": 3.00, "est_revenue_per_unit_usd": 22.00, "usual_supplier": "Valley Dairy Co." },
+    { "id": "butter", "name": "Butter", "category": "Dairy & alt milk", "unit": "kg", "on_hand": 7.5, "par_level": 8, "unit_cost_usd": 9.50, "est_revenue_per_unit_usd": 40.00, "usual_supplier": "Valley Dairy Co." },
+    { "id": "cheddar", "name": "Cheddar", "category": "Dairy & alt milk", "unit": "kg", "on_hand": 5, "par_level": 5, "unit_cost_usd": 11.00, "est_revenue_per_unit_usd": 60.00, "usual_supplier": "Valley Dairy Co." },
+    { "id": "eggs", "name": "Eggs", "category": "Dairy & alt milk", "unit": "each", "on_hand": 78, "par_level": 180, "unit_cost_usd": 0.32, "est_revenue_per_unit_usd": 4.50, "usual_supplier": "Valley Dairy Co." },
+    { "id": "avocados", "name": "Avocados", "category": "Produce", "unit": "each", "on_hand": 5, "par_level": 40, "unit_cost_usd": 1.35, "est_revenue_per_unit_usd": 12.00, "usual_supplier": "GreenLeaf Produce" },
+    { "id": "spinach", "name": "Baby spinach", "category": "Produce", "unit": "kg", "on_hand": 4, "par_level": 4, "unit_cost_usd": 8.00, "est_revenue_per_unit_usd": 45.00, "usual_supplier": "GreenLeaf Produce" },
+    { "id": "croissants", "name": "Butter croissants", "category": "Bakery", "unit": "each", "on_hand": 9, "par_level": 40, "unit_cost_usd": 1.10, "est_revenue_per_unit_usd": 4.25, "usual_supplier": "Golden Crust Bakery" },
+    { "id": "sourdough", "name": "Sourdough loaf", "category": "Bakery", "unit": "loaf", "on_hand": 2, "par_level": 16, "unit_cost_usd": 4.50, "est_revenue_per_unit_usd": 30.00, "usual_supplier": "Golden Crust Bakery" },
+    { "id": "bacon", "name": "Smoked bacon", "category": "Meat", "unit": "kg", "on_hand": 9, "par_level": 10, "unit_cost_usd": 12.50, "est_revenue_per_unit_usd": 55.00, "usual_supplier": "FreshFood Supply" },
+    { "id": "espresso-beans", "name": "Espresso beans", "category": "Coffee & tea", "unit": "kg", "on_hand": 5, "par_level": 12, "unit_cost_usd": 18.00, "est_revenue_per_unit_usd": 160.00, "usual_supplier": "Bean & Leaf Roasters" },
+    { "id": "matcha", "name": "Matcha powder", "category": "Coffee & tea", "unit": "kg", "on_hand": 1.2, "par_level": 1.5, "unit_cost_usd": 60.00, "est_revenue_per_unit_usd": 500.00, "usual_supplier": "Bean & Leaf Roasters" },
+    { "id": "vanilla-syrup", "name": "Vanilla syrup", "category": "Coffee & tea", "unit": "L", "on_hand": 5, "par_level": 6, "unit_cost_usd": 14.00, "est_revenue_per_unit_usd": 35.00, "usual_supplier": "Bean & Leaf Roasters" },
+    { "id": "cups-12oz", "name": "Takeaway cups 12 oz", "category": "Packaging", "unit": "each", "on_hand": 1200, "par_level": 1500, "unit_cost_usd": 0.09, "est_revenue_per_unit_usd": 0.00, "usual_supplier": "FreshFood Supply" }
+  ]
+}
