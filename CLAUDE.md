@@ -65,3 +65,15 @@ Dropped: WhatsApp/Slack approval (Project keys can't bind ZooWork Channels).
   own Approve button.
 - Pass input data to the agent inside the Session `user.message`. Don't use direct workspace
   file APIs.
+
+## How the agent and code split the work (decided in step 1)
+
+- **Code does the maths** (`lib/forecast.ts`): forecasts, which items run out, quantities,
+  costs. In testing the model once claimed "34 is below 21", so arithmetic is never left to it.
+- **The agent does judgement and wording**: reasons, summary, and later supplier search and
+  the purchase-order draft. Its item list is checked against the numbers and corrected if it
+  disagrees (`corrections` in the result).
+- Repeat the rules and reply format in every message, not only in the persona; the agent
+  drifted into a long report when they lived only in the persona.
+- Commands: `npm run setup-agent` (create/update the agent), `npm run check` (live),
+  `npm run check:mock` (no APIs). Agent id lives in `.env.local` as `ZOOWORK_AGENT_ID`.
