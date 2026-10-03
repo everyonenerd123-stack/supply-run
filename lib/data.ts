@@ -12,6 +12,8 @@ export interface InventoryItem {
   unit_cost_usd: number
   est_revenue_per_unit_usd: number
   usual_supplier: string
+  /** Set when the manager types their own "Need today" number on the dashboard. */
+  need_today?: number
 }
 
 export interface Inventory {

@@ -2,6 +2,7 @@
 // browser (Playwright in its ZooWork sandbox) can fill it in and click "Place order".
 import { notFound } from 'next/navigation'
 import { supplierBySlug } from '@/lib/suppliers'
+import { formatUnitPrice } from '@/lib/units'
 import { SupplierShell } from '../SupplierShell'
 
 export default async function SupplierOrderPage({
@@ -55,7 +56,6 @@ export default async function SupplierOrderPage({
             <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-3">Product</th>
-                <th className="px-4 py-3">Unit</th>
                 <th className="px-4 py-3 text-right">Price</th>
                 <th className="px-4 py-3 text-right">Quantity</th>
               </tr>
@@ -64,8 +64,7 @@ export default async function SupplierOrderPage({
               {supplier.products.map((p) => (
                 <tr key={p.id} className="border-t border-gray-100">
                   <td className="px-4 py-3 font-medium">{p.name}</td>
-                  <td className="px-4 py-3 text-gray-600">{p.unit}</td>
-                  <td className="px-4 py-3 text-right">${p.price_usd.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right">{formatUnitPrice(p.price_usd, p.unit)}</td>
                   <td className="px-4 py-3 text-right">
                     <input
                       id={`qty_${p.id}`}

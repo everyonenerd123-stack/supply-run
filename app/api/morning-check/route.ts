@@ -6,7 +6,11 @@ export const maxDuration = 120
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { mock?: boolean; onHand?: Record<string, number> }
+  const body = (await req.json().catch(() => ({}))) as {
+    mock?: boolean
+    onHand?: Record<string, number>
+    need?: Record<string, number>
+  }
   const encoder = new TextEncoder()
 
   const stream = new ReadableStream({
@@ -18,6 +22,7 @@ export async function POST(req: Request) {
         const result = await runMorningCheck({
           mock: body.mock,
           onHandOverrides: body.onHand,
+          needOverrides: body.need,
           timeoutMs: 100_000,
           onProgress: (message) => send({ type: 'progress', message, ms: Date.now() - t0 }),
         })

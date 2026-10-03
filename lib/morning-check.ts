@@ -71,25 +71,29 @@ export interface MorningCheckOptions {
   onProgress?: (message: string) => void
   /** Stock counts edited on the dashboard (item id -> on hand). Missing ids keep the file value. */
   onHandOverrides?: Record<string, number>
+  /** "Need today" numbers set by the manager (item id -> units). Missing ids use the forecast. */
+  needOverrides?: Record<string, number>
 }
 
 export function isMockMode(): boolean {
   return process.env.MOCK_MODE === '1' || process.env.MOCK_MODE === 'true'
 }
 
-export function applyOverrides(overrides: Record<string, number> = {}): Inventory {
+export function applyOverrides(onHand: Record<string, number> = {}, need: Record<string, number> = {}): Inventory {
+  const valid = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0
   return {
     ...baseInventory,
-    items: baseInventory.items.map((item) => {
-      const v = overrides[item.id]
-      return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? { ...item, on_hand: v } : item
-    }),
+    items: baseInventory.items.map((item) => ({
+      ...item,
+      ...(valid(onHand[item.id]) ? { on_hand: onHand[item.id] } : {}),
+      ...(valid(need[item.id]) ? { need_today: need[item.id] } : {}),
+    })),
   }
 }
 
 export async function runMorningCheck(opts: MorningCheckOptions = {}): Promise<MorningCheckResult> {
   const started = Date.now()
-  const inv = applyOverrides(opts.onHandOverrides)
+  const inv = applyOverrides(opts.onHandOverrides, opts.needOverrides)
   if (opts.mock || isMockMode()) {
     return referenceCheck({ started, inv })
   }
@@ -209,6 +213,7 @@ function buildMessage(inv: Inventory): string {
     avg_daily: f.avg_daily,
     same_weekday_last_week: f.same_weekday_last_week,
     forecast_24h: f.forecast_24h,
+    forecast_set_by_manager: typeof inv.items.find((i) => i.id === f.id)?.need_today === 'number',
     days_of_cover: f.days_of_cover,
     runs_out: f.status === 'runs_out',
     low: f.status === 'low',

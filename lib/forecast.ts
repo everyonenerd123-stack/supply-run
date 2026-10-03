@@ -36,7 +36,8 @@ export function forecastItems(inv: Inventory = defaultInventory, s: Sales = defa
     const usage = s.usage_by_item[item.id] ?? []
     const avg = usage.length ? usage.reduce((a, b) => a + b, 0) / usage.length : 0
     const sameDay = lastWeekIndex >= 0 ? (usage[lastWeekIndex] ?? 0) : 0
-    const forecast = Math.max(avg, sameDay)
+    // The manager's own "Need today" number wins over our forecast.
+    const forecast = typeof item.need_today === 'number' ? item.need_today : Math.max(avg, sameDay)
     const daysOfCover = avg > 0 ? item.on_hand / avg : Infinity
 
     const status: StockStatus =

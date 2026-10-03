@@ -6,6 +6,7 @@ import type { Inventory, Sales } from '@/lib/data'
 import { forecastItems, type StockStatus } from '@/lib/forecast'
 import type { MorningCheckResult } from '@/lib/morning-check'
 import type { PlacedOrder } from '@/lib/place-orders'
+import { formatUnitPrice } from '@/lib/units'
 
 type Phase = 'idle' | 'checking' | 'review' | 'placing' | 'placed' | 'rejected'
 type FeedLine = { ms: number; message: string; tone?: 'ok' | 'warn' }
@@ -43,12 +44,20 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
   const [feed, setFeed] = useState<FeedLine[]>([])
   const [result, setResult] = useState<MorningCheckResult | null>(null)
   const [orders, setOrders] = useState<OrderRow[]>([])
-  const [showRaw, setShowRaw] = useState(false)
+  // "Need today" numbers the manager typed in; items not listed use our forecast.
+  const [need, setNeed] = useState<Record<string, number>>({})
 
-  const edited = inventory.items.some((i) => onHand[i.id] !== i.on_hand)
+  const edited = inventory.items.some((i) => onHand[i.id] !== i.on_hand) || Object.keys(need).length > 0
   const liveInventory = useMemo(
-    () => ({ ...inventory, items: inventory.items.map((i) => ({ ...i, on_hand: onHand[i.id] ?? i.on_hand })) }),
-    [inventory, onHand],
+    () => ({
+      ...inventory,
+      items: inventory.items.map((i) => ({
+        ...i,
+        on_hand: onHand[i.id] ?? i.on_hand,
+        ...(need[i.id] !== undefined ? { need_today: need[i.id] } : {}),
+      })),
+    }),
+    [inventory, onHand, need],
   )
   const forecasts = useMemo(() => forecastItems(liveInventory, sales), [liveInventory, sales])
   const counts = { out: forecasts.filter((f) => f.status === 'runs_out').length, low: forecasts.filter((f) => f.status === 'low').length }
@@ -60,13 +69,12 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
     setFeed([])
     setResult(null)
     setOrders([])
-    setShowRaw(false)
     try {
       const overrides = Object.fromEntries(inventory.items.filter((i) => onHand[i.id] !== i.on_hand).map((i) => [i.id, onHand[i.id]]))
       const res = await fetch('/api/morning-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mock, onHand: overrides }),
+        body: JSON.stringify({ mock, onHand: overrides, need }),
       })
       await readNdjson(res, (msg) => {
         if (msg.type === 'progress') log(msg.message, msg.ms)
@@ -125,8 +133,11 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
   }
 
   const step = phase === 'idle' || phase === 'checking' ? (result ? 2 : 1) : phase === 'review' || phase === 'rejected' ? 3 : 4
-  const weekRevenue = sales.revenue_usd.reduce((a, b) => a + b, 0)
-  const weekOrders = sales.orders.reduce((a, b) => a + b, 0)
+  // What the café spent on the supplies it used over the last 7 days (usage x unit cost).
+  const weekSpend = inventory.items.reduce(
+    (sum, item) => sum + (sales.usage_by_item[item.id] ?? []).reduce((a, b) => a + b, 0) * item.unit_cost_usd,
+    0,
+  )
   const maxRevenue = Math.max(...sales.revenue_usd)
   const bySupplier = groupLines(result)
 
@@ -180,10 +191,10 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
 
         {/* KPIs */}
         <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <Kpi label="Revenue, last 7 days" value={usd(weekRevenue).replace('.00', '')} />
-          <Kpi label="Orders, last 7 days" value={weekOrders.toLocaleString()} />
+          <Kpi label="Supply spend, last 7 days" value={usd(weekSpend)} />
           <Kpi label="Run out in 24h" value={String(counts.out)} tone="danger" />
           <Kpi label="Low but OK" value={String(counts.low)} tone="warn" />
+          <Kpi label="Today’s order" value={result && phase !== 'checking' ? usd(result.totals.order_cost_usd) : '–'} />
         </section>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -191,9 +202,15 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
           <section className="overflow-hidden rounded-xl border border-line bg-white lg:col-span-2">
             <div className="flex items-center gap-3 border-b border-line px-5 py-4">
               <h2 className="font-semibold">Inventory</h2>
-              <span className="text-xs text-muted">Edit any “On hand” number, then run the check</span>
+              <span className="text-xs text-muted">Edit “On hand” or “Need today”, then run the check</span>
               {edited && (
-                <button onClick={() => setOnHand(defaults)} className="ml-auto text-sm font-medium text-brand hover:underline">
+                <button
+                  onClick={() => {
+                    setOnHand(defaults)
+                    setNeed({})
+                  }}
+                  className="ml-auto text-sm font-medium text-brand hover:underline"
+                >
                   Reset to demo data
                 </button>
               )}
@@ -204,7 +221,9 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
                   <tr>
                     <th className="px-5 py-2 font-medium">Item</th>
                     <th className="px-3 py-2 font-medium">On hand</th>
-                    <th className="px-3 py-2 font-medium">Need today</th>
+                    <th className="px-3 py-2 font-medium" title="Our forecast: the higher of the 7-day average and the same day last week. Type your own number to override it.">
+                      Need today ⓘ
+                    </th>
                     <th className="px-3 py-2 font-medium">Par</th>
                     <th className="px-3 py-2 font-medium">Status</th>
                   </tr>
@@ -228,7 +247,17 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
                         />
                         <span className="ml-1.5 text-xs text-muted">{f.unit}</span>
                       </td>
-                      <td className="px-3 py-2">{f.forecast_24h}</td>
+                      <td className="px-3 py-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          aria-label={`Need today ${f.name}`}
+                          value={f.forecast_24h}
+                          onChange={(e) => setNeed((n) => ({ ...n, [f.id]: Math.max(0, Number(e.target.value) || 0) }))}
+                          className={`w-20 rounded-md border px-2 py-1 text-right ${need[f.id] !== undefined ? 'border-brand bg-blue-50' : 'border-line'}`}
+                        />
+                      </td>
                       <td className="px-3 py-2 text-muted">{f.par_level}</td>
                       <td className="px-3 py-2">
                         <StatusPill status={f.status} />
@@ -286,16 +315,7 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
                 <h2 className="text-xl font-semibold">Purchase order</h2>
                 <p className="mt-1 max-w-3xl text-sm text-muted">{result.summary}</p>
               </div>
-              <div className="ml-auto flex items-center gap-2">
-                <SourceBadge result={result} />
-                {result.raw_reply && (
-                  <button onClick={() => setShowRaw((s) => !s)} className="text-sm font-medium text-brand hover:underline">
-                    {showRaw ? 'Hide' : 'Show'} raw agent reply
-                  </button>
-                )}
-              </div>
             </div>
-            {showRaw && <pre className="max-h-80 overflow-auto bg-gray-900 p-4 text-xs text-gray-100">{result.raw_reply}</pre>}
 
             {bySupplier.map(([supplier, lines]) => (
               <div key={supplier} className="border-b border-line px-5 py-4">
@@ -310,7 +330,7 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
                         <th className="py-1 font-medium">Item</th>
                         <th className="py-1 font-medium">Quantity</th>
                         <th className="py-1 font-medium">Unit price</th>
-                        <th className="py-1 font-medium">Market check (Tavily)</th>
+                        <th className="py-1 font-medium">Price online</th>
                         <th className="py-1 text-right font-medium">Total</th>
                       </tr>
                     </thead>
@@ -323,14 +343,12 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
                             </div>
                             <div className="mt-0.5 max-w-sm text-xs text-muted">{l.reason}</div>
                           </td>
-                          <td className="py-2 pr-3">
-                            {l.order_qty} × {l.unit}
-                          </td>
-                          <td className="py-2 pr-3">{usd(l.unit_cost_usd)}</td>
+                          <td className="py-2 pr-3">{l.order_qty}</td>
+                          <td className="py-2 pr-3">{formatUnitPrice(l.unit_cost_usd, l.unit)}</td>
                           <td className="py-2 pr-3 text-xs">
                             {l.market_price_usd !== null ? (
                               <>
-                                <span className="font-medium">{usd(l.market_price_usd)}</span>{' '}
+                                <span className="font-medium">{formatUnitPrice(l.market_price_usd, l.unit)}</span>{' '}
                                 <span className={l.market_price_usd >= l.unit_cost_usd ? 'text-ok' : 'text-amber-700'}>
                                   {l.market_price_usd >= l.unit_cost_usd ? '· our price is better' : '· cheaper elsewhere'}
                                 </span>
@@ -354,9 +372,17 @@ export function Dashboard({ inventory, sales }: { inventory: Inventory; sales: S
             ))}
 
             <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-              <div className="text-sm text-muted">
-                Avoids ~<b className="text-ink">{usd(result.totals.est_lost_sales_avoided_usd)}</b> in lost sales today and ~
-                <b className="text-ink">{usd(result.totals.rush_premium_avoided_usd)}</b> in rush-order fees
+              <div className="rounded-lg bg-ok-soft px-4 py-3 text-sm">
+                <div className="font-semibold text-ok">Why order now</div>
+                <ul className="mt-1 space-y-0.5 text-ink">
+                  <li>
+                    Protects about <b>{usd(result.totals.est_lost_sales_avoided_usd)}</b> of today’s sales that would be lost when these items run out.
+                  </li>
+                  <li>
+                    Saves about <b>{usd(result.totals.rush_premium_avoided_usd)}</b> compared with an emergency delivery later, which suppliers charge ~
+                    {inventory.rush_order_premium_pct}% extra for.
+                  </li>
+                </ul>
               </div>
               <div className="ml-auto text-right">
                 <div className="text-xs text-muted">Total</div>

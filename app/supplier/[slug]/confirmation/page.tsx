@@ -2,6 +2,7 @@
 // made-up or edited link shows as invalid.
 import { notFound } from 'next/navigation'
 import { paramToLines, supplierBySlug, verifyOrderCode } from '@/lib/suppliers'
+import { formatQty, formatUnitPrice } from '@/lib/units'
 import { SupplierShell } from '../../SupplierShell'
 
 export default async function ConfirmationPage({
@@ -42,7 +43,7 @@ export default async function ConfirmationPage({
                   <tr key={p.id} className="border-t border-gray-100">
                     <td className="py-2">{p.name}</td>
                     <td className="py-2 text-gray-600">
-                      {lines[p.id]} × {p.unit}
+                      {formatQty(lines[p.id], p.unit)} at {formatUnitPrice(p.price_usd, p.unit)}
                     </td>
                     <td className="py-2 text-right">${(lines[p.id] * p.price_usd).toFixed(2)}</td>
                   </tr>
